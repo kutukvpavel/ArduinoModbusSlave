@@ -39,8 +39,8 @@
 #define MODBUS_HALF_SILENCE_MULTIPLIER 3
 #define MODBUS_FULL_SILENCE_MULTIPLIER 7
 
-#define readUInt16(arr, index) word(arr[index], arr[index + 1])
-#define readCRC(arr, length) word(arr[(length - MODBUS_CRC_LENGTH) + 1], arr[length - MODBUS_CRC_LENGTH])
+#define readUInt16(arr, index) user::word(arr[index], arr[index + 1])
+#define readCRC(arr, length) user::word(arr[(length - MODBUS_CRC_LENGTH) + 1], arr[length - MODBUS_CRC_LENGTH])
 
 /**
  * ---------------------------------------------------
@@ -83,22 +83,11 @@ void ModbusSlave::setUnitAddress(uint8_t unitAddress)
 /**
  * Initialize the modbus object.
  *
- * @param unitAddress The modbus slave unit address.
- * @param transmissionControlPin The digital out pin to be used for RS485 transmission control.
- */
-Modbus::Modbus(uint8_t unitAddress, int transmissionControlPin)
-    : Modbus(Serial, unitAddress, transmissionControlPin)
-{
-}
-
-/**
- * Initialize the modbus object.
- *
  * @param serialStream The serial stream used for the modbus communication.
  * @param unitAddress The modbus slave unit address.
  * @param transmissionControlPin The digital out pin to be used for RS485 transmission control.
  */
-Modbus::Modbus(Stream &serialStream, uint8_t unitAddress, int transmissionControlPin)
+Modbus::Modbus(user::Stream &serialStream, uint8_t unitAddress, user::pin_t transmissionControlPin)
     : _serialStream(serialStream)
 {
     // Set modbus slave unit id.
@@ -112,24 +101,12 @@ Modbus::Modbus(Stream &serialStream, uint8_t unitAddress, int transmissionContro
 /**
  * Initialize the modbus object.
  *
- * @param slaves Pointer to an array of ModbusSlaves.
- * @param numberOfSlaves The number of ModbusSlaves in the array.
- * @param transmissionControlPin The digital out pin to be used for RS485 transmission control.
- */
-Modbus::Modbus(ModbusSlave *slaves, uint8_t numberOfSlaves, int transmissionControlPin)
-    : Modbus(Serial, slaves, numberOfSlaves, transmissionControlPin)
-{
-}
-
-/**
- * Initialize the modbus object.
- *
  * @param serialStream the serial stream used for the modbus communication.
  * @param slaves Pointer to an array of ModbusSlaves.
  * @param numberOfSlaves The number of ModbusSlaves in the array.
  * @param transmissionControlPin The digital out pin to be used for RS485 transmission control.
  */
-Modbus::Modbus(Stream &serialStream, ModbusSlave *slaves, uint8_t numberOfSlaves, int transmissionControlPin)
+Modbus::Modbus(user::Stream &serialStream, ModbusSlave *slaves, uint8_t numberOfSlaves, user::pin_t transmissionControlPin)
     : _serialStream(serialStream)
 {
     // Set the modbus slaves.
@@ -205,16 +182,11 @@ uint64_t Modbus::getTotalBytesReceived()
 void Modbus::begin(uint64_t baudrate)
 {
     // Initialize the transmission control pin and set it's state.
-    if (_transmissionControlPin > MODBUS_CONTROL_PIN_NONE)
+    if (_transmissionControlPin.port)
     {
         pinMode(_transmissionControlPin, OUTPUT);
         digitalWrite(_transmissionControlPin, LOW);
     }
-
-    // Disable the serial stream timeout and clear the buffer.
-    _serialStream.setTimeout(0);
-    _serialStream.flush();
-    _serialTransmissionBufferLength = _serialStream.availableForWrite();
 
     // Calculate the half char time based on the serial's baudrate.
     if (baudrate > 19200)
@@ -227,7 +199,7 @@ void Modbus::begin(uint64_t baudrate)
     }
 
     // Set the last received time to 3.5T in the future to ignore request currently in the middle of transmission.
-    _lastCommunicationTime = micros() + (_halfCharTimeInMicroSecond * MODBUS_FULL_SILENCE_MULTIPLIER);
+    _lastCommunicationTime = user::micros() + (_halfCharTimeInMicroSecond * MODBUS_FULL_SILENCE_MULTIPLIER);
 
     // Sets the request buffer length to zero.
     _requestBufferLength = 0;
@@ -349,7 +321,7 @@ bool Modbus::readCoilFromBuffer(int offset)
         // Check the offset.
         if (index < _requestBufferLength - MODBUS_CRC_LENGTH)
         {
-            return bitRead(_requestBuffer[index], bitIndex);
+            return _requestBuffer[index] & _BV(bitIndex);
         }
     }
     return false;
@@ -386,6 +358,25 @@ uint16_t Modbus::readRegisterFromBuffer(int offset)
 }
 
 /**
+ * @brief Encapsulate repeated code (and annoying Arduino bitSet etc)
+ * 
+ * @param _byte 
+ * @param index 
+ * @param status 
+ */
+void status_helper(uint8_t* _byte, uint8_t index, bool status)
+{
+    if (status)
+    {
+        *_byte |= _BV(index);
+    }
+    else
+    {
+        *_byte &= ~_BV(index);
+    }
+}
+
+/**
  * Writes the exception status to the buffer.
  *
  * @param offset
@@ -409,14 +400,7 @@ uint8_t Modbus::writeExceptionStatusToBuffer(int offset, bool status)
         return STATUS_ILLEGAL_DATA_ADDRESS;
     }
 
-    if (status)
-    {
-        bitSet(_responseBuffer[index], bitIndex);
-    }
-    else
-    {
-        bitClear(_responseBuffer[index], bitIndex);
-    }
+    status_helper(&(_responseBuffer[index]), bitIndex, status);
 
     return STATUS_OK;
 }
@@ -446,14 +430,7 @@ uint8_t Modbus::writeCoilToBuffer(int offset, bool state)
         return STATUS_ILLEGAL_DATA_ADDRESS;
     }
 
-    if (state)
-    {
-        bitSet(_responseBuffer[index], bitIndex);
-    }
-    else
-    {
-        bitClear(_responseBuffer[index], bitIndex);
-    }
+    status_helper(&(_responseBuffer[index]), bitIndex, state);
 
     return STATUS_OK;
 }
@@ -549,7 +526,7 @@ bool Modbus::readRequest()
         if (!_isRequestBufferReading)
         {
             // And it already took 1.5T since the last message.
-            if ((micros() - _lastCommunicationTime) > (_halfCharTimeInMicroSecond * MODBUS_HALF_SILENCE_MULTIPLIER))
+            if ((user::micros() - _lastCommunicationTime) > (_halfCharTimeInMicroSecond * MODBUS_HALF_SILENCE_MULTIPLIER))
             {
                 // Start the reading and clear the buffer.
                 _requestBufferLength = 0;
@@ -574,7 +551,7 @@ bool Modbus::readRequest()
 
             // Check if there is enough room for the incoming bytes in the buffer.
             uint16_t m_length =  MODBUS_MAX_BUFFER - _requestBufferLength;
-            length = min(length, m_length);
+            length = user::min(length, m_length);
             // Read the data from the serial stream into the buffer.
             length = _serialStream.readBytes(_requestBuffer + _requestBufferLength, MODBUS_MAX_BUFFER - _requestBufferLength);
 
@@ -591,7 +568,7 @@ bool Modbus::readRequest()
         }
 
         // Save the time of the last received byte(s).
-        _lastCommunicationTime = micros();
+        _lastCommunicationTime = user::micros();
 
         // Wait for more data.
         return false;
@@ -599,7 +576,7 @@ bool Modbus::readRequest()
     else
     {
         // If we are still reading but no data has been received for 1.5T then this request message is complete.
-        if (_isRequestBufferReading && ((micros() - _lastCommunicationTime) > (_halfCharTimeInMicroSecond * MODBUS_HALF_SILENCE_MULTIPLIER)))
+        if (_isRequestBufferReading && ((user::micros() - _lastCommunicationTime) > (_halfCharTimeInMicroSecond * MODBUS_HALF_SILENCE_MULTIPLIER)))
         {
             // Stop the reading to allow new messages to be read.
             _isRequestBufferReading = false;
@@ -922,7 +899,7 @@ uint16_t Modbus::writeResponse()
     if (_responseBufferWriteIndex == 0)
     {
         // Check if we already passed 1.5T.
-        if ((micros() - _lastCommunicationTime) <= (_halfCharTimeInMicroSecond * MODBUS_HALF_SILENCE_MULTIPLIER))
+        if ((user::micros() - _lastCommunicationTime) <= (_halfCharTimeInMicroSecond * MODBUS_HALF_SILENCE_MULTIPLIER))
         {
             return 0;
         }
@@ -933,7 +910,7 @@ uint16_t Modbus::writeResponse()
         _responseBuffer[(_responseBufferLength - MODBUS_CRC_LENGTH) + 1] = crc >> 8;
 
         // Start transmission mode for RS485.
-        if (_transmissionControlPin > MODBUS_CONTROL_PIN_NONE)
+        if (_transmissionControlPin.port)
         {
             digitalWrite(_transmissionControlPin, HIGH);
         }
@@ -945,54 +922,34 @@ uint16_t Modbus::writeResponse()
 
     // Send the output buffer over the serial stream.
     uint16_t length = 0;
-    if (_serialTransmissionBufferLength > 0)
+    static_assert(_serialTransmissionBufferLength > 0, "WTF!?");
+    // Check the maximum length of bytes to be send in one call.
+    uint16_t length = user::min(
+        _serialStream.availableForWrite(),
+        _responseBufferLength - _responseBufferWriteIndex);
+
+    if (length > 0)
     {
-        // Check the maximum length of bytes to be send in one call.
-        uint16_t length = min(
-            _serialStream.availableForWrite(),
-            _responseBufferLength - _responseBufferWriteIndex);
-
-        if (length > 0)
-        {
-            // Write the maximum length of bytes over the serial stream.
-            length = _serialStream.write(
-                _responseBuffer + _responseBufferWriteIndex,
-                length);
-            _responseBufferWriteIndex += length;
-            _totalBytesSent += length;
-        }
-
-        // Check if all the data has been sent.
-        if (_serialStream.availableForWrite() < _serialTransmissionBufferLength)
-        {
-            _lastCommunicationTime = micros();
-            return length;
-        }
-
-        // If the serial stream reports empty, make sure it is.
-        // (`Serial` removes bytes from buffer before sending them).
-        _serialStream.flush();
-    }
-    else
-    {
-        // Compatibility mode for badly written software serials; aka AltSoftSerial.
-        length = _responseBufferLength - _responseBufferWriteIndex;
-
-        if (length > 0)
-        {
-            length = _serialStream.write(_responseBuffer, length);
-            _serialStream.flush();
-        }
-
+        // Write the maximum length of bytes over the serial stream.
+        length = _serialStream.write(
+            _responseBuffer + _responseBufferWriteIndex,
+            length);
         _responseBufferWriteIndex += length;
         _totalBytesSent += length;
     }
 
+    // Check if all the data has been sent.
+    if (_serialStream.availableForWrite() < _serialTransmissionBufferLength)
+    {
+        _lastCommunicationTime = user::micros();
+        return length;
+    }
+
     // If all the data has been send and more than 1.5T has passed.
-    if (_responseBufferWriteIndex >= _responseBufferLength && (micros() - _lastCommunicationTime) > (_halfCharTimeInMicroSecond * MODBUS_HALF_SILENCE_MULTIPLIER))
+    if (_responseBufferWriteIndex >= _responseBufferLength && (user::micros() - _lastCommunicationTime) > (_halfCharTimeInMicroSecond * MODBUS_HALF_SILENCE_MULTIPLIER))
     {
         // End the transmission.
-        if (_transmissionControlPin > MODBUS_CONTROL_PIN_NONE)
+        if (_transmissionControlPin.port)
         {
             digitalWrite(_transmissionControlPin, LOW);
         }

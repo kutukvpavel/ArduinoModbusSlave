@@ -17,12 +17,16 @@
 
 #ifndef MODBUSSLAVE_H
 #define MODBUSSLAVE_H
-#include <Arduino.h>
+#ifdef ARDUINO
+  #include <Arduino.h>
+#else
+  #include "user.h"
+#endif
 
 #define MODBUS_MAX_BUFFER 256
 #define MODBUS_INVALID_UNIT_ADDRESS 255
 #define MODBUS_DEFAULT_UNIT_ADDRESS 1
-#define MODBUS_CONTROL_PIN_NONE -1
+#define MODBUS_CONTROL_PIN_NONE user::pin_t(NULL, 0)
 
 #if defined (ESP32) || defined (ESP8266)
   #define SERIAL_BUFFER_SIZE 128
@@ -101,10 +105,10 @@ private:
 class Modbus
 {
 public:
-  Modbus(uint8_t unitAddress = MODBUS_DEFAULT_UNIT_ADDRESS, int transmissionControlPin = MODBUS_CONTROL_PIN_NONE);
-  Modbus(ModbusSlave *slaves, uint8_t numberOfSlaves, int transmissionControlPin = MODBUS_CONTROL_PIN_NONE);
-  Modbus(Stream &serialStream, uint8_t unitAddress = MODBUS_DEFAULT_UNIT_ADDRESS, int transmissionControlPin = MODBUS_CONTROL_PIN_NONE);
-  Modbus(Stream &serialStream, ModbusSlave *slaves, uint8_t numberOfSlaves, int transmissionControlPin = MODBUS_CONTROL_PIN_NONE);
+  Modbus(uint8_t unitAddress = MODBUS_DEFAULT_UNIT_ADDRESS, user::pin_t transmissionControlPin = MODBUS_CONTROL_PIN_NONE);
+  Modbus(ModbusSlave *slaves, uint8_t numberOfSlaves, user::pin_t transmissionControlPin = MODBUS_CONTROL_PIN_NONE);
+  Modbus(user::Stream &serialStream, uint8_t unitAddress = MODBUS_DEFAULT_UNIT_ADDRESS, user::pin_t transmissionControlPin = MODBUS_CONTROL_PIN_NONE);
+  Modbus(user::Stream &serialStream, ModbusSlave *slaves, uint8_t numberOfSlaves, user::pin_t transmissionControlPin = MODBUS_CONTROL_PIN_NONE);
 
   void begin(uint64_t boudRate);
   void setUnitAddress(uint8_t unitAddress);
@@ -143,15 +147,15 @@ private:
 
   bool _enabled = true;
 
-  Stream &_serialStream;
+  user::Stream &_serialStream;
 
 #if defined(SERIAL_TX_BUFFER_SIZE) && !defined (ESP32) && !defined (ESP8266)
-  int _serialTransmissionBufferLength = SERIAL_TX_BUFFER_SIZE;
+  #define _serialTransmissionBufferLength SERIAL_TX_BUFFER_SIZE;
 #else
-  int _serialTransmissionBufferLength = SERIAL_BUFFER_SIZE;
+  #define _serialTransmissionBufferLength SERIAL_BUFFER_SIZE
 #endif
 
-  int _transmissionControlPin = MODBUS_CONTROL_PIN_NONE;
+  user::pin_t _transmissionControlPin = MODBUS_CONTROL_PIN_NONE;
 
   uint16_t _halfCharTimeInMicroSecond;
   uint64_t _lastCommunicationTime;
