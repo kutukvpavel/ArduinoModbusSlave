@@ -484,7 +484,7 @@ uint8_t Modbus::writeRegisterToBuffer(int offset, uint16_t value)
  * @param length The length of the array.
  * @return STATUS_OK if succeeded, STATUS_ILLEGAL_DATA_ADDRESS if the data doesn't fit in the buffer.
  */
-uint8_t Modbus::writeArrayToBuffer(int offset, uint16_t *str, uint8_t length)
+uint8_t Modbus::writeArrayToBuffer(int offset, const uint16_t *str, uint8_t length)
 {
     // Index to start writing from (1 x valueBytes, n x values (offset)).
     uint8_t index = MODBUS_DATA_INDEX + 1 + (offset * 2);
