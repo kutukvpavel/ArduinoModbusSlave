@@ -921,7 +921,6 @@ uint16_t Modbus::writeResponse()
      */
 
     // Send the output buffer over the serial stream.
-    uint16_t length = 0;
     static_assert(_serialTransmissionBufferLength > 0, "WTF!?");
     // Check the maximum length of bytes to be send in one call.
     uint16_t length = user::min(
